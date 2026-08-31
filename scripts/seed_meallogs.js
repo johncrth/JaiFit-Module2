@@ -7,14 +7,15 @@
  */
 
 const admin = require("firebase-admin");
+const { getFirestore, Timestamp } = require("firebase-admin/firestore");
 const serviceAccount = require("./jaifit-ai-coach-firebase-adminsdk-fbsvc-03b3eb97c6.json");
 
 admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
+  credential: admin.cert(serviceAccount),
   projectId: "jaifit-ai-coach",
 });
 
-const db = admin.firestore();
+const db = getFirestore();
 
 // ─── ข้อมูลตัวอย่าง ──────────────────────────────────────────────────────────
 
@@ -36,7 +37,7 @@ const mealLogs = [
     id: "log_001",
     title: "อาหารเช้า — ไข่ต้ม + สลัด",
     description: "ไข่ต้ม 2 ฟอง ผักสลัดรวม น้ำมันมะกอก ไม่มีแป้ง",
-    loggedAt: admin.firestore.Timestamp.fromDate(new Date("2026-08-25T07:30:00+07:00")),
+    loggedAt: Timestamp.fromDate(new Date("2026-08-25T07:30:00+07:00")),
     status: "safe",
     userId: "user_001",
     userName: "สมชาย ใจดี",
@@ -47,7 +48,7 @@ const mealLogs = [
     id: "log_002",
     title: "อาหารกลางวัน — ข้าวผัดหมู",
     description: "ข้าวผัดหมู 1 จาน น้ำมันพืช ไข่ดาว ผัก",
-    loggedAt: admin.firestore.Timestamp.fromDate(new Date("2026-08-25T12:15:00+07:00")),
+    loggedAt: Timestamp.fromDate(new Date("2026-08-25T12:15:00+07:00")),
     status: "risky",
     userId: "user_001",
     userName: "สมชาย ใจดี",
@@ -58,7 +59,7 @@ const mealLogs = [
     id: "log_003",
     title: "อาหารเย็น — สลัดไก่ย่าง",
     description: "ไก่ย่างอก 150g สลัดผักรวม น้ำสลัดญี่ปุ่น",
-    loggedAt: admin.firestore.Timestamp.fromDate(new Date("2026-08-25T18:45:00+07:00")),
+    loggedAt: Timestamp.fromDate(new Date("2026-08-25T18:45:00+07:00")),
     status: "safe",
     userId: "user_002",
     userName: "วิภา รักสุข",
@@ -69,7 +70,7 @@ const mealLogs = [
     id: "log_004",
     title: "ของว่าง — มันฝรั่งทอด",
     description: "มันฝรั่งทอดกรอบ 1 ซอง (75g) รสเดิม",
-    loggedAt: admin.firestore.Timestamp.fromDate(new Date("2026-08-26T15:00:00+07:00")),
+    loggedAt: Timestamp.fromDate(new Date("2026-08-26T15:00:00+07:00")),
     status: "exceeded",
     userId: "user_001",
     userName: "สมชาย ใจดี",
@@ -80,7 +81,7 @@ const mealLogs = [
     id: "log_005",
     title: "อาหารเช้า — กล้วยหอม + โยเกิร์ต",
     description: "กล้วยหอม 1 ลูก โยเกิร์ตกรีก plain 150g",
-    loggedAt: admin.firestore.Timestamp.fromDate(new Date("2026-08-26T08:00:00+07:00")),
+    loggedAt: Timestamp.fromDate(new Date("2026-08-26T08:00:00+07:00")),
     status: "safe",
     userId: "user_002",
     userName: "วิภา รักสุข",
@@ -93,12 +94,12 @@ const mealLogs = [
 const nudgesByLogId = {
   log_002: {
     message: "ข้าวผัดมีคาร์บสูงนิดนึงนะคะ ลองเปลี่ยนเป็นข้าวกล้องหรือลดปริมาณครึ่งจานดูไหมคะ? 💪",
-    sentAt: admin.firestore.Timestamp.fromDate(new Date("2026-08-25T12:20:00+07:00")),
+    sentAt: Timestamp.fromDate(new Date("2026-08-25T12:20:00+07:00")),
     response: "โอเค ครั้งหน้าจะลองข้าวกล้องดูครับ",
   },
   log_004: {
     message: "อุ๊ย! ของทอดเกินโควต้าวันนี้แล้วนะคะ มื้อเย็นลองเลือกอาหารคาร์บต่ำชดเชยดูนะคะ 🥗",
-    sentAt: admin.firestore.Timestamp.fromDate(new Date("2026-08-26T15:05:00+07:00")),
+    sentAt: Timestamp.fromDate(new Date("2026-08-26T15:05:00+07:00")),
     response: "",
   },
 };
