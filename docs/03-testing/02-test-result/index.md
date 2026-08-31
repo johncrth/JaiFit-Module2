@@ -10,4 +10,4 @@
 
 ## เอกสารในโฟลเดอร์นี้
 
-- [20260831-01-mealLogs-seed-result.jpg](20260831-01-mealLogs-seed-result.jpg) — ภาพหน้าจอ Firebase Console ยืนยันว่า `seed_meallogs.js` เขียนข้อมูล mealLogs เข้า Firestore สำเร็จ 5 รายการ
+- [20260831-01-mealLogs-seed-result.jpg](../../20260831-01-mealLogs-seed-result.jpg) — ภาพหน้าจอ Firebase Console ยืนยันว่า `seed_meallogs.js` เขียนข้อมูล mealLogs เข้า Firestore สำเร็จ 5 รายการ
