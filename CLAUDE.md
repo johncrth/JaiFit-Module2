@@ -4,9 +4,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-This repository currently contains **only documentation scaffolding** — there is no application code, package manifest, build system, or test suite yet. The `docs/` directory is an Obsidian-style knowledge base (files link to each other with `[[wikilink]]` syntax) that defines the intended workflow for this project, written in Thai.
+Alongside the documentation scaffolding, this repository now has early application code — no package manifest, build system, or test suite yet. The `docs/` directory is an Obsidian-style knowledge base (files link to each other with `[[wikilink]]` syntax) that defines the intended workflow for this project, written in Thai.
 
-When source code is eventually added, update this file with real build/lint/test commands and architecture notes — don't invent them ahead of time.
+- `scripts/` — one-off Node.js scripts (e.g. `seed_meallogs.js`, a Firebase Admin SDK seeding script; requires a service account JSON placed alongside it, which is gitignored and must never be committed)
+- `app/` — working frontend pages that talk to the real Firestore backend (e.g. `meallogs.html`), as opposed to the static design mockups under `docs/02-design/01-prototypes/`
+
+When more source code is added, update this file with real build/lint/test commands and architecture notes — don't invent them ahead of time.
 
 ## Documentation structure and workflow
 

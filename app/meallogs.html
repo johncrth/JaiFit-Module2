@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JaiFit — รายการ Meal Logs</title>
+
+  <!-- Firebase v10 (ESM compat build via CDN) -->
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import {
+      getFirestore, collection, getDocs, orderBy, query
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCIbVVfc_dZYIQMG6hfNaPYWD2ux5LANBg",
+      authDomain: "jaifit-ai-coach.firebaseapp.com",
+      projectId: "jaifit-ai-coach",
+      storageBucket: "jaifit-ai-coach.firebasestorage.app",
+      messagingSenderId: "998331086072",
+      appId: "1:998331086072:web:f1c0951c87623280a6770d"
+    };
+
+    const app  = initializeApp(firebaseConfig);
+    const db   = getFirestore(app);
+
+    // ── Status badge config ──────────────────────────────────────────────────
+    const STATUS = {
+      safe:     { label: "✅ ปลอดภัย",    cls: "badge-safe"     },
+      risky:    { label: "⚠️ เสี่ยง",      cls: "badge-risky"    },
+      exceeded: { label: "🚨 เกินโควต้า",  cls: "badge-exceeded" },
+    };
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+    function formatDate(ts) {
+      if (!ts) return "—";
+      const d = ts.toDate ? ts.toDate() : new Date(ts);
+      return d.toLocaleString("th-TH", {
+        day: "numeric", month: "long", year: "numeric",
+        hour: "2-digit", minute: "2-digit"
+      });
+    }
+
+    function renderCard(doc) {
+      const d = doc.data();
+      const s = STATUS[d.status] ?? { label: d.status, cls: "" };
+      return `
+        <div class="card">
+          <div class="card-header">
+            <span class="meal-title">${d.title ?? "—"}</span>
+            <span class="badge ${s.cls}">${s.label}</span>
+          </div>
+          <p class="desc">${d.description ?? ""}</p>
+          <div class="meta">
+            <span>🙍 ${d.userName ?? "?"}</span>
+            <span>🍽 ${d.foodCategoryName ?? "?"}</span>
+            <span>🕐 ${formatDate(d.loggedAt)}</span>
+          </div>
+        </div>`;
+    }
+
+    // ── Load & render ────────────────────────────────────────────────────────
+    async function loadLogs() {
+      const container = document.getElementById("log-list");
+      const counter   = document.getElementById("counter");
+
+      try {
+        const q    = query(collection(db, "mealLogs"), orderBy("loggedAt", "desc"));
+        const snap = await getDocs(q);
+
+        if (snap.empty) {
+          container.innerHTML = "<p class='empty'>ยังไม่มีข้อมูล Meal Log</p>";
+          return;
+        }
+
+        counter.textContent = `พบทั้งหมด ${snap.size} รายการ`;
+        container.innerHTML = snap.docs.map(renderCard).join("");
+      } catch (err) {
+        container.innerHTML = `<p class="error">❌ โหลดข้อมูลล้มเหลว: ${err.message}</p>`;
+        console.error(err);
+      }
+    }
+
+    window.addEventListener("DOMContentLoaded", loadLogs);
+  </script>
+
+  <style>
+    /* ── Reset & base ─────────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: "Sarabun", "Noto Sans Thai", sans-serif;
+      background: #f4f6fb;
+      color: #1e293b;
+      min-height: 100vh;
+    }
+
+    /* ── Header ───────────────────────────────────────────────────── */
+    header {
+      background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
+      color: #fff;
+      padding: 20px 24px 16px;
+    }
+    header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: 0.5px; }
+    header p  { font-size: 0.875rem; opacity: 0.85; margin-top: 2px; }
+
+    /* ── Layout ───────────────────────────────────────────────────── */
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 24px 16px;
+    }
+
+    #counter {
+      font-size: 0.85rem;
+      color: #64748b;
+      margin-bottom: 16px;
+    }
+
+    /* ── Card ─────────────────────────────────────────────────────── */
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 16px 18px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+      border-left: 4px solid #d1fae5;
+      transition: transform .15s;
+    }
+    .card:hover { transform: translateY(-2px); }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+      margin-bottom: 8px;
+    }
+
+    .meal-title {
+      font-weight: 600;
+      font-size: 1rem;
+      line-height: 1.4;
+      flex: 1;
+    }
+
+    .desc {
+      font-size: 0.875rem;
+      color: #475569;
+      margin-bottom: 10px;
+      line-height: 1.6;
+    }
+
+    .meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      font-size: 0.8rem;
+      color: #64748b;
+    }
+
+    /* ── Badges ───────────────────────────────────────────────────── */
+    .badge {
+      white-space: nowrap;
+      border-radius: 20px;
+      padding: 3px 10px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .badge-safe     { background: #dcfce7; color: #15803d; }
+    .badge-risky    { background: #fef9c3; color: #92400e; }
+    .badge-exceeded { background: #fee2e2; color: #b91c1c; }
+
+    /* ── States ───────────────────────────────────────────────────── */
+    .empty, .error {
+      text-align: center;
+      padding: 40px 16px;
+      color: #64748b;
+      font-size: 0.9rem;
+    }
+    .error { color: #b91c1c; }
+
+    /* ── Spinner ──────────────────────────────────────────────────── */
+    #loading {
+      display: flex;
+      justify-content: center;
+      padding: 48px 0;
+    }
+    .spinner {
+      width: 36px; height: 36px;
+      border: 4px solid #d1fae5;
+      border-top-color: #16a34a;
+      border-radius: 50%;
+      animation: spin .7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>🥗 JaiFit — Meal Logs</h1>
+    <p>ADT-RAISE Module 2 · Week 6 · Part D</p>
+  </header>
+
+  <main>
+    <p id="counter">กำลังโหลดข้อมูล…</p>
+    <div id="loading"><div class="spinner"></div></div>
+    <div id="log-list"></div>
+  </main>
+
+  <script>
+    // ซ่อน spinner หลัง DOM โหลด (Firebase module จะ replace เนื้อหาเอง)
+    document.addEventListener("DOMContentLoaded", () => {
+      setTimeout(() => {
+        const l = document.getElementById("loading");
+        if (l) l.style.display = "none";
+      }, 500);
+    });
+  </script>
+</body>
+</html>

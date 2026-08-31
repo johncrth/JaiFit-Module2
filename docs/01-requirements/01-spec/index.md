@@ -12,3 +12,4 @@
 ## เอกสารในโฟลเดอร์นี้
 
 - [[20260827-01-jaifit-ai-coach-metabolic-transition|JaiFit — AI Coach ส่วนตัวสำหรับช่วงเปลี่ยนระบบเผาผลาญ]] — requirement หลักของ MVP พร้อม open questions ที่ต้อง validate
+- [[20260831-01-scope|ขอบเขตโครงงาน — JaiFit]] — ตารางขอบเขต (scope) เทียบกับ LeaveEasy และโครงสร้าง Firestore ของ mealLogs
