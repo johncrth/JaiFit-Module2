@@ -10,3 +10,6 @@
 
 # Dependencies
 node_modules/
+
+# Firebase CLI local cache
+.firebase/
