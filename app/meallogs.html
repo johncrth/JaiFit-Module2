@@ -9,7 +9,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
-      getFirestore, collection, getDocs, orderBy, query
+      getFirestore, collection, getDocs, addDoc, orderBy, query, Timestamp
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -81,7 +81,89 @@
       }
     }
 
-    window.addEventListener("DOMContentLoaded", loadLogs);
+    // ── Add meal log form ───────────────────────────────────────────────────
+    async function loadFoodCategoryOptions() {
+      const select = document.getElementById("food-category");
+      const snap = await getDocs(collection(db, "foodCategories"));
+      select.innerHTML = '<option value="">— เลือกหมวดอาหาร —</option>' +
+        snap.docs.map(d => {
+          const c = d.data();
+          return `<option value="${d.id}" data-name="${c.name ?? ""}">${c.name ?? d.id}</option>`;
+        }).join("");
+    }
+
+    async function loadUserOptions() {
+      const select = document.getElementById("user");
+      const snap = await getDocs(collection(db, "users"));
+      select.innerHTML = '<option value="">— เลือกผู้ใช้ —</option>' +
+        snap.docs.map(d => {
+          const u = d.data();
+          return `<option value="${d.id}" data-name="${u.name ?? ""}">${u.name ?? d.id}</option>`;
+        }).join("");
+    }
+
+    function toggleForm(show) {
+      document.getElementById("add-form-section").style.display = show ? "block" : "none";
+      document.getElementById("log-list").style.display = show ? "none" : "block";
+      document.getElementById("counter").style.display = show ? "none" : "block";
+      document.getElementById("form-error").textContent = "";
+    }
+
+    async function handleAddSubmit(e) {
+      e.preventDefault();
+      const form = e.target;
+      const errorEl = document.getElementById("form-error");
+      errorEl.textContent = "";
+
+      const title = form.title.value.trim();
+      const description = form.description.value.trim();
+      const categorySelect = form.foodCategory;
+      const userSelect = form.user;
+      const foodCategoryId = categorySelect.value;
+      const userId = userSelect.value;
+
+      if (!title || !foodCategoryId || !userId) {
+        errorEl.textContent = "กรุณากรอกชื่อรายการ และเลือกหมวดอาหาร/ผู้ใช้ให้ครบ";
+        return;
+      }
+
+      const foodCategoryName = categorySelect.selectedOptions[0].dataset.name;
+      const userName = userSelect.selectedOptions[0].dataset.name;
+
+      const submitBtn = form.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+
+      try {
+        await addDoc(collection(db, "mealLogs"), {
+          title,
+          description,
+          loggedAt: Timestamp.now(),
+          status: "safe",
+          userId,
+          userName,
+          foodCategoryId,
+          foodCategoryName,
+        });
+
+        form.reset();
+        toggleForm(false);
+        await loadLogs();
+      } catch (err) {
+        errorEl.textContent = `❌ บันทึกล้มเหลว: ${err.message}`;
+        console.error(err);
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      loadLogs();
+      loadFoodCategoryOptions();
+      loadUserOptions();
+      document.getElementById("show-add-form").addEventListener("click", () => toggleForm(true));
+      document.getElementById("cancel-add-form").addEventListener("click", () => toggleForm(false));
+      document.getElementById("add-form").addEventListener("submit", handleAddSubmit);
+    });
   </script>
 
   <style>
@@ -171,6 +253,70 @@
     .badge-risky    { background: #fef9c3; color: #92400e; }
     .badge-exceeded { background: #fee2e2; color: #b91c1c; }
 
+    /* ── Add form ─────────────────────────────────────────────────── */
+    #show-add-form {
+      display: block;
+      width: 100%;
+      background: #16a34a;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 16px;
+    }
+    #show-add-form:hover { background: #15803d; }
+
+    #add-form-section {
+      background: #fff;
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    }
+    #add-form-section h2 {
+      font-size: 1.05rem;
+      margin-bottom: 12px;
+      color: #15803d;
+    }
+    .form-group { margin-bottom: 12px; }
+    .form-group label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 4px;
+    }
+    .form-group input,
+    .form-group textarea,
+    .form-group select {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 0.9rem;
+      font-family: inherit;
+    }
+    .form-group textarea { resize: vertical; min-height: 60px; }
+    .form-actions { display: flex; gap: 10px; margin-top: 14px; }
+    .form-actions button {
+      flex: 1;
+      border: none;
+      border-radius: 8px;
+      padding: 10px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-save { background: #16a34a; color: #fff; }
+    .btn-save:hover { background: #15803d; }
+    .btn-save:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-cancel { background: #e2e8f0; color: #334155; }
+    .btn-cancel:hover { background: #cbd5e1; }
+    #form-error { color: #b91c1c; font-size: 0.85rem; margin-top: 8px; }
+
     /* ── States ───────────────────────────────────────────────────── */
     .empty, .error {
       text-align: center;
@@ -204,6 +350,39 @@
   </header>
 
   <main>
+    <button id="show-add-form" type="button">+ เพิ่มมื้ออาหาร</button>
+
+    <section id="add-form-section" style="display:none">
+      <h2>🍽 เพิ่มมื้ออาหารใหม่</h2>
+      <form id="add-form">
+        <div class="form-group">
+          <label for="title">ชื่อรายการ</label>
+          <input type="text" id="title" name="title" required />
+        </div>
+        <div class="form-group">
+          <label for="description">รายละเอียด</label>
+          <textarea id="description" name="description"></textarea>
+        </div>
+        <div class="form-group">
+          <label for="food-category">หมวดอาหาร</label>
+          <select id="food-category" name="foodCategory" required>
+            <option value="">— กำลังโหลด —</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label for="user">ผู้ใช้</label>
+          <select id="user" name="user" required>
+            <option value="">— กำลังโหลด —</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button type="button" id="cancel-add-form" class="btn-cancel">ยกเลิก</button>
+          <button type="submit" class="btn-save">บันทึก</button>
+        </div>
+        <p id="form-error"></p>
+      </form>
+    </section>
+
     <p id="counter">กำลังโหลดข้อมูล…</p>
     <div id="loading"><div class="spinner"></div></div>
     <div id="log-list"></div>

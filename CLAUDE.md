@@ -4,12 +4,35 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project status
 
-Alongside the documentation scaffolding, this repository now has early application code — no package manifest, build system, or test suite yet. The `docs/` directory is an Obsidian-style knowledge base (files link to each other with `[[wikilink]]` syntax) that defines the intended workflow for this project, written in Thai.
+Alongside the documentation scaffolding, this repository has early application code — no root package manifest, build system, or test suite yet. The `docs/` directory is an Obsidian-style knowledge base (files link to each other with `[[wikilink]]` syntax) that defines the intended workflow for this project, written in Thai.
 
-- `scripts/` — one-off Node.js scripts (e.g. `seed_meallogs.js`, a Firebase Admin SDK seeding script; requires a service account JSON placed alongside it, which is gitignored and must never be committed)
+- `scripts/` — one-off Node.js scripts (e.g. `seed_meallogs.js`, a Firebase Admin SDK seeding script; has its own `package.json` with a `firebase-admin` dependency)
 - `app/` — working frontend pages that talk to the real Firestore backend (e.g. `meallogs.html`), as opposed to the static design mockups under `docs/02-design/01-prototypes/`
 
 When more source code is added, update this file with real build/lint/test commands and architecture notes — don't invent them ahead of time.
+
+### Running the seed script
+
+```
+cd scripts
+npm install
+node seed_meallogs.js
+```
+
+Requires a Firebase service account JSON (e.g. `jaifit-ai-coach-firebase-adminsdk-*.json`) placed alongside `seed_meallogs.js` — it is gitignored and must never be committed. Ask the user for it; don't invent or fetch one.
+
+### Two coexisting architectures — do not conflate them
+
+This repo currently holds two different, unreconciled pictures of the data model:
+
+1. **The actual running prototype** (`app/meallogs.html`, `scripts/seed_meallogs.js`, and [[docs/01-requirements/01-spec/20260831-01-scope.md]]) talks directly to **Firestore** from the browser with a hardcoded client config. Collections: `users`, `foodCategories`, `mealLogs` (with a `nudges` subcollection per meal log). Names are denormalized onto `mealLogs` (`userName`, `foodCategoryName`) to avoid joins when rendering the list. A `mealLogs.status` field holds one of exactly three values — `safe`, `risky`, `exceeded` — as defined in `20260831-01-scope.md`.
+2. **The target/planned architecture** described in `docs/02-design/02-technical/` (see `20260827-02-database-schema.md`) is a much larger, separately-scoped system: Node.js + Express + React + **PostgreSQL**, with ~15 relational entities (users, consent records, push subscriptions, nudge logs, streaks, motivation profiles, etc.) covering the full JaiFit product spec.
+
+These are not the same system at two points in time being incrementally merged — the design docs are conceptual/aspirational and the app code is a minimal Firestore-backed teaching exercise (ADT-RAISE course module). Don't assume fields or collections from one apply to the other, and don't "fix" the app code to match the PostgreSQL schema unless the user asks for that migration explicitly.
+
+### Project constraint: no real personal data in Firestore
+
+The `jaifit-ai-coach` Firestore project is in **test mode** (no auth/security rules locking it down) — anyone with the client config can read/write it. Never seed, enter, or suggest entering real personal data (real names, emails, health data, etc.) for any actual person into any collection. Use fictional/placeholder data only (as `scripts/seed_meallogs.js` already does).
 
 ## Documentation structure and workflow
 
