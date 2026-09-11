@@ -9,7 +9,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
-      getFirestore, collection, getDocs, addDoc, orderBy, query, Timestamp
+      getFirestore, collection, getDocs, addDoc, updateDoc, doc, orderBy, query, Timestamp
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -41,14 +41,22 @@
       });
     }
 
-    function renderCard(doc) {
-      const d = doc.data();
+    function renderStatusButtons(logId, currentStatus) {
+      return Object.entries(STATUS).map(([value, s]) => {
+        const isCurrent = value === currentStatus;
+        return `<button type="button" class="status-btn ${isCurrent ? "active" : ""}"
+                  data-id="${logId}" data-status="${value}" ${isCurrent ? "disabled" : ""}>${s.label}</button>`;
+      }).join("");
+    }
+
+    function renderCard(docSnap) {
+      const d = docSnap.data();
       const s = STATUS[d.status] ?? { label: d.status, cls: "" };
       return `
-        <div class="card">
+        <div class="card" data-id="${docSnap.id}">
           <div class="card-header">
             <span class="meal-title">${d.title ?? "—"}</span>
-            <span class="badge ${s.cls}">${s.label}</span>
+            <span class="badge ${s.cls}" data-role="status-badge">${s.label}</span>
           </div>
           <p class="desc">${d.description ?? ""}</p>
           <div class="meta">
@@ -56,6 +64,10 @@
             <span>🍽 ${d.foodCategoryName ?? "?"}</span>
             <span>🕐 ${formatDate(d.loggedAt)}</span>
           </div>
+          <div class="status-actions" data-role="status-actions">
+            ${renderStatusButtons(docSnap.id, d.status)}
+          </div>
+          <p class="status-error" data-role="status-error"></p>
         </div>`;
     }
 
@@ -156,6 +168,34 @@
       }
     }
 
+    // ── Change status (inline, per card) ────────────────────────────────────
+    async function handleStatusClick(e) {
+      const btn = e.target.closest(".status-btn");
+      if (!btn) return;
+
+      const logId = btn.dataset.id;
+      const newStatus = btn.dataset.status;
+      const card = btn.closest(".card");
+      const errorEl = card.querySelector('[data-role="status-error"]');
+      const actionsEl = card.querySelector('[data-role="status-actions"]');
+      errorEl.textContent = "";
+      actionsEl.querySelectorAll(".status-btn").forEach(b => b.disabled = true);
+
+      try {
+        await updateDoc(doc(db, "mealLogs", logId), { status: newStatus });
+
+        const s = STATUS[newStatus] ?? { label: newStatus, cls: "" };
+        const badgeEl = card.querySelector('[data-role="status-badge"]');
+        badgeEl.textContent = s.label;
+        badgeEl.className = `badge ${s.cls}`;
+        actionsEl.innerHTML = renderStatusButtons(logId, newStatus);
+      } catch (err) {
+        errorEl.textContent = `❌ เปลี่ยนสถานะล้มเหลว: ${err.message}`;
+        console.error(err);
+        actionsEl.querySelectorAll(".status-btn").forEach(b => b.disabled = b.classList.contains("active"));
+      }
+    }
+
     window.addEventListener("DOMContentLoaded", () => {
       loadLogs();
       loadFoodCategoryOptions();
@@ -163,6 +203,7 @@
       document.getElementById("show-add-form").addEventListener("click", () => toggleForm(true));
       document.getElementById("cancel-add-form").addEventListener("click", () => toggleForm(false));
       document.getElementById("add-form").addEventListener("submit", handleAddSubmit);
+      document.getElementById("log-list").addEventListener("click", handleStatusClick);
     });
   </script>
 
@@ -252,6 +293,35 @@
     .badge-safe     { background: #dcfce7; color: #15803d; }
     .badge-risky    { background: #fef9c3; color: #92400e; }
     .badge-exceeded { background: #fee2e2; color: #b91c1c; }
+
+    /* ── Status change buttons ────────────────────────────────────── */
+    .status-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 12px;
+      padding-top: 10px;
+      border-top: 1px solid #f1f5f9;
+    }
+    .status-btn {
+      border: 1px solid #cbd5e1;
+      background: #fff;
+      color: #475569;
+      border-radius: 20px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .status-btn:hover:not(:disabled) { background: #f1f5f9; }
+    .status-btn.active {
+      background: #1e293b;
+      color: #fff;
+      border-color: #1e293b;
+      cursor: default;
+    }
+    .status-btn:disabled { opacity: 0.9; }
+    .status-error { color: #b91c1c; font-size: 0.78rem; margin-top: 6px; }
 
     /* ── Add form ─────────────────────────────────────────────────── */
     #show-add-form {
