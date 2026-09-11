@@ -9,7 +9,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
-      getFirestore, collection, getDocs, addDoc, updateDoc, doc, orderBy, query, Timestamp
+      getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, orderBy, query, Timestamp
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -68,6 +68,9 @@
             ${renderStatusButtons(docSnap.id, d.status)}
           </div>
           <p class="status-error" data-role="status-error"></p>
+          <div class="card-footer">
+            <button type="button" class="delete-btn" data-id="${docSnap.id}">🗑 ลบ</button>
+          </div>
         </div>`;
     }
 
@@ -196,6 +199,38 @@
       }
     }
 
+    // ── Delete a meal log ────────────────────────────────────────────────────
+    async function handleDeleteClick(e) {
+      const btn = e.target.closest(".delete-btn");
+      if (!btn) return;
+
+      const logId = btn.dataset.id;
+      const card = btn.closest(".card");
+      const title = card.querySelector(".meal-title")?.textContent ?? "รายการนี้";
+
+      const confirmed = window.confirm(`ลบ "${title}" ใช่หรือไม่? การลบนี้ไม่สามารถย้อนกลับได้`);
+      if (!confirmed) return;
+
+      const errorEl = card.querySelector('[data-role="status-error"]');
+      btn.disabled = true;
+
+      try {
+        await deleteDoc(doc(db, "mealLogs", logId));
+        card.remove();
+
+        const counter = document.getElementById("counter");
+        const remaining = document.querySelectorAll("#log-list .card").length;
+        counter.textContent = remaining > 0 ? `พบทั้งหมด ${remaining} รายการ` : "";
+        if (remaining === 0) {
+          document.getElementById("log-list").innerHTML = "<p class='empty'>ยังไม่มีข้อมูล Meal Log</p>";
+        }
+      } catch (err) {
+        errorEl.textContent = `❌ ลบล้มเหลว: ${err.message}`;
+        console.error(err);
+        btn.disabled = false;
+      }
+    }
+
     window.addEventListener("DOMContentLoaded", () => {
       loadLogs();
       loadFoodCategoryOptions();
@@ -204,6 +239,7 @@
       document.getElementById("cancel-add-form").addEventListener("click", () => toggleForm(false));
       document.getElementById("add-form").addEventListener("submit", handleAddSubmit);
       document.getElementById("log-list").addEventListener("click", handleStatusClick);
+      document.getElementById("log-list").addEventListener("click", handleDeleteClick);
     });
   </script>
 
@@ -322,6 +358,25 @@
     }
     .status-btn:disabled { opacity: 0.9; }
     .status-error { color: #b91c1c; font-size: 0.78rem; margin-top: 6px; }
+
+    /* ── Delete button ────────────────────────────────────────────── */
+    .card-footer {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 8px;
+    }
+    .delete-btn {
+      border: 1px solid #fecaca;
+      background: #fff;
+      color: #b91c1c;
+      border-radius: 20px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .delete-btn:hover:not(:disabled) { background: #fef2f2; }
+    .delete-btn:disabled { opacity: 0.6; cursor: not-allowed; }
 
     /* ── Add form ─────────────────────────────────────────────────── */
     #show-add-form {
