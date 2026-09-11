@@ -9,8 +9,12 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
-      getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, doc, orderBy, query, Timestamp
+      getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, setDoc, getDoc, doc, orderBy, query, Timestamp
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+    import {
+      getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
+      signInWithEmailAndPassword, signOut
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyCIbVVfc_dZYIQMG6hfNaPYWD2ux5LANBg",
@@ -23,6 +27,10 @@
 
     const app  = initializeApp(firebaseConfig);
     const db   = getFirestore(app);
+    const auth = getAuth(app);
+
+    // ── Current logged-in user's profile (set by onAuthStateChanged) ────────
+    let currentProfile = null; // { uid, name, email, role }
 
     // ── Status badge config ──────────────────────────────────────────────────
     const STATUS = {
@@ -107,16 +115,6 @@
         }).join("");
     }
 
-    async function loadUserOptions() {
-      const select = document.getElementById("user");
-      const snap = await getDocs(collection(db, "users"));
-      select.innerHTML = '<option value="">— เลือกผู้ใช้ —</option>' +
-        snap.docs.map(d => {
-          const u = d.data();
-          return `<option value="${d.id}" data-name="${u.name ?? ""}">${u.name ?? d.id}</option>`;
-        }).join("");
-    }
-
     function toggleForm(show) {
       document.getElementById("add-form-section").style.display = show ? "block" : "none";
       document.getElementById("log-list").style.display = show ? "none" : "block";
@@ -133,17 +131,20 @@
       const title = form.title.value.trim();
       const description = form.description.value.trim();
       const categorySelect = form.foodCategory;
-      const userSelect = form.user;
       const foodCategoryId = categorySelect.value;
-      const userId = userSelect.value;
 
-      if (!title || !foodCategoryId || !userId) {
-        errorEl.textContent = "กรุณากรอกชื่อรายการ และเลือกหมวดอาหาร/ผู้ใช้ให้ครบ";
+      if (!title || !foodCategoryId) {
+        errorEl.textContent = "กรุณากรอกชื่อรายการ และเลือกหมวดอาหารให้ครบ";
+        return;
+      }
+      if (!currentProfile) {
+        errorEl.textContent = "กรุณาเข้าสู่ระบบก่อนบันทึกมื้ออาหาร";
         return;
       }
 
       const foodCategoryName = categorySelect.selectedOptions[0].dataset.name;
-      const userName = userSelect.selectedOptions[0].dataset.name;
+      const userId = currentProfile.uid;
+      const userName = currentProfile.name;
 
       const submitBtn = form.querySelector('button[type="submit"]');
       submitBtn.disabled = true;
@@ -231,15 +232,123 @@
       }
     }
 
+    // ── Auth: signup / login / logout ───────────────────────────────────────
+    function showAuthView(view) {
+      document.getElementById("login-form-section").style.display = view === "login" ? "block" : "none";
+      document.getElementById("signup-form-section").style.display = view === "signup" ? "block" : "none";
+    }
+
+    async function handleSignup(e) {
+      e.preventDefault();
+      const form = e.target;
+      const errorEl = document.getElementById("signup-error");
+      errorEl.textContent = "";
+
+      const name = form.name.value.trim();
+      const email = form.email.value.trim();
+      const password = form.password.value;
+
+      if (!name || !email || !password) {
+        errorEl.textContent = "กรุณากรอกข้อมูลให้ครบ";
+        return;
+      }
+
+      const submitBtn = form.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+
+      try {
+        const cred = await createUserWithEmailAndPassword(auth, email, password);
+        await setDoc(doc(db, "users", cred.user.uid), {
+          name,
+          email,
+          role: "user",
+          createdAt: Timestamp.now(),
+        });
+        form.reset();
+        // onAuthStateChanged จะรับช่วงต่อ (โหลดโปรไฟล์ + สลับไปหน้าแอป) อัตโนมัติ
+      } catch (err) {
+        errorEl.textContent = `❌ สมัครสมาชิกล้มเหลว: ${err.message}`;
+        console.error(err);
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+
+    async function handleLogin(e) {
+      e.preventDefault();
+      const form = e.target;
+      const errorEl = document.getElementById("login-error");
+      errorEl.textContent = "";
+
+      const email = form.email.value.trim();
+      const password = form.password.value;
+
+      if (!email || !password) {
+        errorEl.textContent = "กรุณากรอกอีเมลและรหัสผ่าน";
+        return;
+      }
+
+      const submitBtn = form.querySelector('button[type="submit"]');
+      submitBtn.disabled = true;
+
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+        form.reset();
+      } catch (err) {
+        errorEl.textContent = `❌ เข้าสู่ระบบล้มเหลว: ${err.message}`;
+        console.error(err);
+      } finally {
+        submitBtn.disabled = false;
+      }
+    }
+
+    function handleLogout() {
+      signOut(auth);
+    }
+
+    onAuthStateChanged(auth, async (user) => {
+      if (user) {
+        let name = user.email;
+        let role = "user";
+        try {
+          const profileSnap = await getDoc(doc(db, "users", user.uid));
+          if (profileSnap.exists()) {
+            name = profileSnap.data().name ?? name;
+            role = profileSnap.data().role ?? role;
+          }
+        } catch (err) {
+          console.error("โหลดโปรไฟล์ผู้ใช้ล้มเหลว:", err);
+        }
+        currentProfile = { uid: user.uid, name, email: user.email, role };
+
+        document.getElementById("auth-section").style.display = "none";
+        document.getElementById("app-section").style.display = "block";
+        document.getElementById("user-bar").style.display = "flex";
+        document.getElementById("user-bar-name").textContent = `สวัสดี, ${name}`;
+
+        loadLogs();
+        loadFoodCategoryOptions();
+      } else {
+        currentProfile = null;
+        document.getElementById("auth-section").style.display = "block";
+        document.getElementById("app-section").style.display = "none";
+        document.getElementById("user-bar").style.display = "none";
+        showAuthView("login");
+      }
+    });
+
     window.addEventListener("DOMContentLoaded", () => {
-      loadLogs();
-      loadFoodCategoryOptions();
-      loadUserOptions();
       document.getElementById("show-add-form").addEventListener("click", () => toggleForm(true));
       document.getElementById("cancel-add-form").addEventListener("click", () => toggleForm(false));
       document.getElementById("add-form").addEventListener("submit", handleAddSubmit);
       document.getElementById("log-list").addEventListener("click", handleStatusClick);
       document.getElementById("log-list").addEventListener("click", handleDeleteClick);
+
+      document.getElementById("login-form").addEventListener("submit", handleLogin);
+      document.getElementById("signup-form").addEventListener("submit", handleSignup);
+      document.getElementById("show-signup").addEventListener("click", (e) => { e.preventDefault(); showAuthView("signup"); });
+      document.getElementById("show-login").addEventListener("click", (e) => { e.preventDefault(); showAuthView("login"); });
+      document.getElementById("logout-btn").addEventListener("click", handleLogout);
     });
   </script>
 
@@ -262,6 +371,50 @@
     }
     header h1 { font-size: 1.5rem; font-weight: 700; letter-spacing: 0.5px; }
     header p  { font-size: 0.875rem; opacity: 0.85; margin-top: 2px; }
+
+    #user-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid rgba(255,255,255,.25);
+      font-size: 0.85rem;
+    }
+    #logout-btn {
+      background: rgba(255,255,255,.15);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,.4);
+      border-radius: 8px;
+      padding: 5px 12px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #logout-btn:hover { background: rgba(255,255,255,.25); }
+
+    /* ── Auth (login/signup) ─────────────────────────────────────── */
+    #auth-section {
+      background: #fff;
+      border-radius: 12px;
+      padding: 20px 18px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    }
+    #auth-section h2 {
+      font-size: 1.05rem;
+      margin-bottom: 14px;
+      color: #15803d;
+    }
+    .form-error-text { color: #b91c1c; font-size: 0.85rem; margin-top: 8px; }
+    .auth-switch {
+      font-size: 0.85rem;
+      color: #64748b;
+      margin-top: 14px;
+      text-align: center;
+    }
+    .auth-switch a { color: #16a34a; font-weight: 600; text-decoration: none; }
+    .auth-switch a:hover { text-decoration: underline; }
 
     /* ── Layout ───────────────────────────────────────────────────── */
     main {
@@ -472,45 +625,89 @@
   <header>
     <h1>🥗 JaiFit — Meal Logs</h1>
     <p>ADT-RAISE Module 2 · Week 6 · Part D</p>
+    <div id="user-bar" style="display:none">
+      <span id="user-bar-name"></span>
+      <button id="logout-btn" type="button">ออกจากระบบ</button>
+    </div>
   </header>
 
   <main>
-    <button id="show-add-form" type="button">+ เพิ่มมื้ออาหาร</button>
+    <section id="auth-section">
+      <div id="login-form-section">
+        <h2>🔐 เข้าสู่ระบบ</h2>
+        <form id="login-form">
+          <div class="form-group">
+            <label for="login-email">อีเมล</label>
+            <input type="email" id="login-email" name="email" required />
+          </div>
+          <div class="form-group">
+            <label for="login-password">รหัสผ่าน</label>
+            <input type="password" id="login-password" name="password" required />
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn-save">เข้าสู่ระบบ</button>
+          </div>
+          <p id="login-error" class="form-error-text"></p>
+        </form>
+        <p class="auth-switch">ยังไม่มีบัญชี? <a href="#" id="show-signup">สมัครสมาชิก</a></p>
+      </div>
 
-    <section id="add-form-section" style="display:none">
-      <h2>🍽 เพิ่มมื้ออาหารใหม่</h2>
-      <form id="add-form">
-        <div class="form-group">
-          <label for="title">ชื่อรายการ</label>
-          <input type="text" id="title" name="title" required />
-        </div>
-        <div class="form-group">
-          <label for="description">รายละเอียด</label>
-          <textarea id="description" name="description"></textarea>
-        </div>
-        <div class="form-group">
-          <label for="food-category">หมวดอาหาร</label>
-          <select id="food-category" name="foodCategory" required>
-            <option value="">— กำลังโหลด —</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label for="user">ผู้ใช้</label>
-          <select id="user" name="user" required>
-            <option value="">— กำลังโหลด —</option>
-          </select>
-        </div>
-        <div class="form-actions">
-          <button type="button" id="cancel-add-form" class="btn-cancel">ยกเลิก</button>
-          <button type="submit" class="btn-save">บันทึก</button>
-        </div>
-        <p id="form-error"></p>
-      </form>
+      <div id="signup-form-section" style="display:none">
+        <h2>📝 สมัครสมาชิก</h2>
+        <form id="signup-form">
+          <div class="form-group">
+            <label for="signup-name">ชื่อที่แสดง</label>
+            <input type="text" id="signup-name" name="name" required />
+          </div>
+          <div class="form-group">
+            <label for="signup-email">อีเมล</label>
+            <input type="email" id="signup-email" name="email" required />
+          </div>
+          <div class="form-group">
+            <label for="signup-password">รหัสผ่าน</label>
+            <input type="password" id="signup-password" name="password" required minlength="6" />
+          </div>
+          <div class="form-actions">
+            <button type="submit" class="btn-save">สมัครสมาชิก</button>
+          </div>
+          <p id="signup-error" class="form-error-text"></p>
+        </form>
+        <p class="auth-switch">มีบัญชีอยู่แล้ว? <a href="#" id="show-login">เข้าสู่ระบบ</a></p>
+      </div>
     </section>
 
-    <p id="counter">กำลังโหลดข้อมูล…</p>
-    <div id="loading"><div class="spinner"></div></div>
-    <div id="log-list"></div>
+    <section id="app-section" style="display:none">
+      <button id="show-add-form" type="button">+ เพิ่มมื้ออาหาร</button>
+
+      <section id="add-form-section" style="display:none">
+        <h2>🍽 เพิ่มมื้ออาหารใหม่</h2>
+        <form id="add-form">
+          <div class="form-group">
+            <label for="title">ชื่อรายการ</label>
+            <input type="text" id="title" name="title" required />
+          </div>
+          <div class="form-group">
+            <label for="description">รายละเอียด</label>
+            <textarea id="description" name="description"></textarea>
+          </div>
+          <div class="form-group">
+            <label for="food-category">หมวดอาหาร</label>
+            <select id="food-category" name="foodCategory" required>
+              <option value="">— กำลังโหลด —</option>
+            </select>
+          </div>
+          <div class="form-actions">
+            <button type="button" id="cancel-add-form" class="btn-cancel">ยกเลิก</button>
+            <button type="submit" class="btn-save">บันทึก</button>
+          </div>
+          <p id="form-error"></p>
+        </form>
+      </section>
+
+      <p id="counter">กำลังโหลดข้อมูล…</p>
+      <div id="loading"><div class="spinner"></div></div>
+      <div id="log-list"></div>
+    </section>
   </main>
 
   <script>
