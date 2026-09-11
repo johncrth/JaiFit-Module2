@@ -30,9 +30,15 @@ This repo currently holds two different, unreconciled pictures of the data model
 
 These are not the same system at two points in time being incrementally merged — the design docs are conceptual/aspirational and the app code is a minimal Firestore-backed teaching exercise (ADT-RAISE course module). Don't assume fields or collections from one apply to the other, and don't "fix" the app code to match the PostgreSQL schema unless the user asks for that migration explicitly.
 
-### Project constraint: no real personal data in Firestore
+### Security rules are enforced — Firestore requires sign-in
 
-The `jaifit-ai-coach` Firestore project is in **test mode** (no auth/security rules locking it down) — anyone with the client config can read/write it. Never seed, enter, or suggest entering real personal data (real names, emails, health data, etc.) for any actual person into any collection. Use fictional/placeholder data only (as `scripts/seed_meallogs.js` already does).
+The `jaifit-ai-coach` Firestore project is **no longer in test mode**. `firestore.rules` (repo root) requires `request.auth != null` for every read and write, across all collections. This was confirmed empirically: an unauthenticated request to the Firestore REST API for `mealLogs` returns `403 PERMISSION_DENIED`.
+
+This means `app/meallogs.html` — which queries Firestore directly with no sign-in step — can no longer load any data; it needs a Firebase Auth flow added (or a signed-in session) before it will work again. Don't assume the app still runs anonymously; check for an auth step before debugging "empty" data as a rules/query bug.
+
+`ACL.md` (repo root) documents the access-control intent behind these rules — check it alongside `firestore.rules` when reasoning about who can read/write what.
+
+Never seed, enter, or suggest entering real personal data (real names, emails, health data, etc.) for any actual person into any collection, regardless of the rules in place. Use fictional/placeholder data only (as `scripts/seed_meallogs.js` already does).
 
 ## Documentation structure and workflow
 
