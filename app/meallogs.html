@@ -9,7 +9,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
-      getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, setDoc, getDoc, doc, orderBy, where, query, Timestamp
+      getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, setDoc, getDoc, doc, orderBy, where, limit, query, Timestamp
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
     import {
       getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
@@ -35,6 +35,9 @@
     // ── AI status suggestion (OpenRouter) ───────────────────────────────────
     const OPENROUTER_MODEL = "google/gemini-2.5-flash-lite";
     let pendingAiStatus = null; // ตั้งเมื่อผู้ใช้กด "ใช้คำแนะนำนี้" เท่านั้น
+
+    // ── AI behavior summary + nudge (agentic, ระดับ 2) ──────────────────────
+    let pendingNudge = null; // { logId, message } ตั้งเมื่อ AI สรุปผลสำเร็จ ใช้ตอนกดยืนยันส่ง
 
     function getOpenRouterApiKey() {
       try {
@@ -144,6 +147,7 @@
       document.getElementById("log-list").style.display = show ? "none" : "block";
       document.getElementById("counter").style.display = show ? "none" : "block";
       document.getElementById("form-error").textContent = "";
+      document.getElementById("nudge-section").style.display = "none";
       resetAiSuggestion();
     }
 
@@ -239,6 +243,159 @@
       pendingAiStatus = status;
       const s = STATUS[status];
       document.getElementById("ai-confirmed-text").textContent = `✅ จะบันทึกเป็น: ${s.label}`;
+    }
+
+    // ── AI behavior summary + nudge (agentic) ───────────────────────────────
+    function toggleNudgeSection(show) {
+      document.getElementById("nudge-section").style.display = show ? "block" : "none";
+      document.getElementById("log-list").style.display = show ? "none" : "block";
+      document.getElementById("counter").style.display = show ? "none" : "block";
+      document.getElementById("add-form-section").style.display = "none";
+      resetNudgeState();
+    }
+
+    function resetNudgeState() {
+      pendingNudge = null;
+      document.getElementById("nudge-loading").style.display = "none";
+      document.getElementById("nudge-result").style.display = "none";
+      document.getElementById("nudge-error").textContent = "";
+      document.getElementById("nudge-sent-text").textContent = "";
+    }
+
+    async function fetchWithTimeout(url, options, timeoutMs) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        return await fetch(url, { ...options, signal: controller.signal });
+      } catch (err) {
+        if (err.name === "AbortError") {
+          throw new Error("การเชื่อมต่อ AI หมดเวลา (timeout) กรุณาลองใหม่อีกครั้ง");
+        }
+        throw err;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    }
+
+    async function handleNudgeAnalyze() {
+      const errorEl = document.getElementById("nudge-error");
+      const btn = document.getElementById("show-nudge-btn");
+      resetNudgeState();
+      errorEl.textContent = "";
+
+      if (!currentProfile) {
+        errorEl.textContent = "กรุณาเข้าสู่ระบบก่อน";
+        return;
+      }
+
+      const apiKey = getOpenRouterApiKey();
+      if (!apiKey) {
+        errorEl.textContent = "ต้องใส่ OpenRouter API key ก่อนถึงจะใช้ฟีเจอร์นี้ได้";
+        return;
+      }
+
+      document.getElementById("nudge-loading").style.display = "flex";
+      btn.disabled = true;
+
+      try {
+        // ── ขั้น 1: อ่านหลายที่ — ดึง mealLogs ล่าสุด 10 รายการของผู้ใช้คนนี้ ──
+        const q = query(
+          collection(db, "mealLogs"),
+          where("userId", "==", currentProfile.uid),
+          orderBy("loggedAt", "desc"),
+          limit(10)
+        );
+        const snap = await getDocs(q);
+
+        if (snap.empty) {
+          errorEl.textContent = "ยังไม่มีข้อมูล mealLog ให้วิเคราะห์";
+          return;
+        }
+
+        const logsForPrompt = snap.docs.map(d => {
+          const data = d.data();
+          return `- ${formatDate(data.loggedAt)} | ${data.title ?? "—"} | หมวด: ${data.foodCategoryName ?? "?"} | สถานะ: ${data.status ?? "?"}`;
+        }).join("\n");
+        const latestLogId = snap.docs[0].id;
+
+        // ── ขั้น 2: สรุปให้คนอ่าน — ส่งให้ AI วิเคราะห์แนวโน้ม ──
+        const response = await fetchWithTimeout("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: OPENROUTER_MODEL,
+            response_format: { type: "json_object" },
+            messages: [
+              {
+                role: "system",
+                content: "คุณเป็นโค้ชสุขภาพสำหรับแอป JaiFit ได้รับรายการ mealLog ล่าสุดของผู้ใช้คนหนึ่ง " +
+                  "ให้วิเคราะห์แนวโน้มพฤติกรรมการกิน (เช่น เสี่ยง/เกินโควต้ากี่ครั้ง จากหมวดอาหารหรือรูปแบบอะไรบ้าง) " +
+                  "แล้วร่างข้อความ nudge สั้นๆ ให้กำลังใจพร้อมคำแนะนำเชิงพฤติกรรมที่ทำได้จริง โทนเป็นมิตร ไม่ตำหนิ " +
+                  "ตอบกลับเป็น JSON เท่านั้น รูปแบบ {\"summary\": \"สรุปแนวโน้มภาษาไทย\", \"nudgeMessage\": \"ข้อความ nudge ภาษาไทย\"}",
+              },
+              {
+                role: "user",
+                content: `mealLog ล่าสุด (เรียงใหม่สุดก่อน):\n${logsForPrompt}`,
+              },
+            ],
+          }),
+        }, 30000);
+
+        if (!response.ok) {
+          throw new Error(`OpenRouter API ตอบกลับผิดพลาด (HTTP ${response.status})`);
+        }
+
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) throw new Error("ไม่ได้รับคำตอบจาก AI");
+
+        const parsed = JSON.parse(content);
+        if (!parsed.summary || !parsed.nudgeMessage) {
+          throw new Error("AI ตอบกลับไม่ครบ (ไม่มี summary หรือ nudgeMessage)");
+        }
+
+        // ── ขั้น 3: เขียนผลกลับให้คนเห็น (ยังไม่บันทึกจนกว่าจะกดยืนยัน) ──
+        pendingNudge = { logId: latestLogId, message: parsed.nudgeMessage };
+        document.getElementById("nudge-summary-text").textContent = parsed.summary;
+        document.getElementById("nudge-message-text").textContent = parsed.nudgeMessage;
+        document.getElementById("nudge-result").style.display = "block";
+      } catch (err) {
+        errorEl.textContent = `❌ วิเคราะห์ล้มเหลว: ${err.message}`;
+        console.error(err);
+      } finally {
+        document.getElementById("nudge-loading").style.display = "none";
+        btn.disabled = false;
+      }
+    }
+
+    // ── ขั้น 4: จดบันทึก — เขียน nudge ลง Firestore เมื่อผู้ใช้กดยืนยันเท่านั้น ──
+    async function handleNudgeConfirm() {
+      if (!pendingNudge) return;
+      const errorEl = document.getElementById("nudge-error");
+      const confirmBtn = document.getElementById("nudge-confirm-btn");
+      errorEl.textContent = "";
+      confirmBtn.disabled = true;
+
+      try {
+        await addDoc(collection(db, "mealLogs", pendingNudge.logId, "nudges"), {
+          message: pendingNudge.message,
+          sentAt: Timestamp.now(),
+          response: "",
+        });
+        document.getElementById("nudge-sent-text").textContent = "✅ ส่ง Nudge แล้ว";
+        pendingNudge = null;
+      } catch (err) {
+        errorEl.textContent = `❌ ส่ง Nudge ล้มเหลว: ${err.message}`;
+        console.error(err);
+        confirmBtn.disabled = false;
+      }
+    }
+
+    function handleNudgeCancel() {
+      toggleNudgeSection(false);
     }
 
     async function handleAddSubmit(e) {
@@ -462,6 +619,15 @@
       document.getElementById("add-form").addEventListener("submit", handleAddSubmit);
       document.getElementById("ai-suggest-btn").addEventListener("click", handleAiSuggest);
       document.getElementById("ai-confirm-btn").addEventListener("click", handleAiConfirm);
+
+      document.getElementById("show-nudge-btn").addEventListener("click", () => {
+        toggleNudgeSection(true);
+        handleNudgeAnalyze();
+      });
+      document.getElementById("nudge-confirm-btn").addEventListener("click", handleNudgeConfirm);
+      document.getElementById("nudge-cancel-btn").addEventListener("click", handleNudgeCancel);
+      document.getElementById("nudge-close-btn").addEventListener("click", handleNudgeCancel);
+
       document.getElementById("log-list").addEventListener("click", handleStatusClick);
       document.getElementById("log-list").addEventListener("click", handleDeleteClick);
 
@@ -668,6 +834,61 @@
     }
     #show-add-form:hover { background: #15803d; }
 
+    #show-nudge-btn {
+      display: block;
+      width: 100%;
+      background: #eef2ff;
+      color: #4338ca;
+      border: 1px solid #c7d2fe;
+      border-radius: 10px;
+      padding: 10px 16px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      margin-bottom: 16px;
+    }
+    #show-nudge-btn:hover:not(:disabled) { background: #e0e7ff; }
+    #show-nudge-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    #nudge-section {
+      background: #fff;
+      border-radius: 12px;
+      padding: 18px;
+      margin-bottom: 16px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.07);
+    }
+    #nudge-section h2 {
+      font-size: 1.05rem;
+      margin-bottom: 12px;
+      color: #15803d;
+    }
+    .nudge-loading {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 0 16px;
+      color: #64748b;
+      font-size: 0.85rem;
+    }
+    .small-spinner {
+      width: 20px; height: 20px;
+      border-width: 3px;
+      margin: 0;
+    }
+    .nudge-text {
+      font-size: 0.85rem;
+      color: #475569;
+      line-height: 1.6;
+      margin-bottom: 12px;
+    }
+    .nudge-message-preview {
+      background: #f5f3ff;
+      border: 1px solid #ddd6fe;
+      border-radius: 8px;
+      padding: 10px 12px;
+    }
+    #nudge-sent-text { color: #15803d; font-weight: 600; margin-top: 10px; font-size: 0.85rem; }
+
     #add-form-section {
       background: #fff;
       border-radius: 12px;
@@ -823,6 +1044,30 @@
 
     <section id="app-section" style="display:none">
       <button id="show-add-form" type="button">+ เพิ่มมื้ออาหาร</button>
+      <button id="show-nudge-btn" type="button">📊 ให้ AI สรุปพฤติกรรมการกิน</button>
+
+      <section id="nudge-section" style="display:none">
+        <h2>📊 สรุปพฤติกรรมการกินด้วย AI</h2>
+        <div id="nudge-loading" class="nudge-loading" style="display:none">
+          <div class="spinner small-spinner"></div>
+          <span>กำลังวิเคราะห์พฤติกรรม...</span>
+        </div>
+        <div id="nudge-result" style="display:none">
+          <p><strong>📊 สรุปแนวโน้ม:</strong></p>
+          <p id="nudge-summary-text" class="nudge-text"></p>
+          <p><strong>💬 ข้อความ nudge ที่จะส่ง:</strong></p>
+          <p id="nudge-message-text" class="nudge-text nudge-message-preview"></p>
+          <div class="form-actions">
+            <button type="button" id="nudge-cancel-btn" class="btn-cancel">ยกเลิก</button>
+            <button type="button" id="nudge-confirm-btn" class="btn-save">ส่ง Nudge นี้</button>
+          </div>
+          <p id="nudge-sent-text"></p>
+        </div>
+        <p id="nudge-error" class="form-error-text"></p>
+        <div class="form-actions">
+          <button type="button" id="nudge-close-btn" class="btn-cancel">ปิด</button>
+        </div>
+      </section>
 
       <section id="add-form-section" style="display:none">
         <h2>🍽 เพิ่มมื้ออาหารใหม่</h2>
