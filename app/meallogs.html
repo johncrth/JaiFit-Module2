@@ -32,6 +32,26 @@
     // ── Current logged-in user's profile (set by onAuthStateChanged) ────────
     let currentProfile = null; // { uid, name, email, role }
 
+    // ── AI status suggestion (OpenRouter) ───────────────────────────────────
+    const OPENROUTER_MODEL = "google/gemini-2.5-flash-lite";
+    let pendingAiStatus = null; // ตั้งเมื่อผู้ใช้กด "ใช้คำแนะนำนี้" เท่านั้น
+
+    function getOpenRouterApiKey() {
+      try {
+        let key = localStorage.getItem("openrouter_api_key");
+        if (!key) {
+          key = window.prompt(
+            "วางคีย์ OpenRouter API ของคุณ (เก็บไว้แค่ใน localStorage ของเบราว์เซอร์นี้เท่านั้น ไม่ถูกส่งไปที่อื่น):"
+          );
+          if (key) localStorage.setItem("openrouter_api_key", key.trim());
+        }
+        return key ? key.trim() : null;
+      } catch (err) {
+        console.error("เข้าถึง localStorage ไม่ได้:", err);
+        return null;
+      }
+    }
+
     // ── Status badge config ──────────────────────────────────────────────────
     const STATUS = {
       safe:     { label: "✅ ปลอดภัย",    cls: "badge-safe"     },
@@ -124,6 +144,101 @@
       document.getElementById("log-list").style.display = show ? "none" : "block";
       document.getElementById("counter").style.display = show ? "none" : "block";
       document.getElementById("form-error").textContent = "";
+      resetAiSuggestion();
+    }
+
+    function resetAiSuggestion() {
+      pendingAiStatus = null;
+      document.getElementById("ai-suggestion").style.display = "none";
+      document.getElementById("ai-suggest-error").textContent = "";
+      document.getElementById("ai-confirmed-text").textContent = "";
+    }
+
+    async function handleAiSuggest() {
+      const title = document.getElementById("title").value.trim();
+      const description = document.getElementById("description").value.trim();
+      const errorEl = document.getElementById("ai-suggest-error");
+      errorEl.textContent = "";
+
+      if (!title) {
+        errorEl.textContent = "กรุณากรอกชื่อรายการก่อนให้ AI ช่วยประเมิน";
+        return;
+      }
+
+      const apiKey = getOpenRouterApiKey();
+      if (!apiKey) {
+        errorEl.textContent = "ต้องใส่ OpenRouter API key ก่อนถึงจะใช้ฟีเจอร์นี้ได้";
+        return;
+      }
+
+      const btn = document.getElementById("ai-suggest-btn");
+      btn.disabled = true;
+      btn.textContent = "กำลังวิเคราะห์...";
+      resetAiSuggestion();
+
+      try {
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: OPENROUTER_MODEL,
+            response_format: { type: "json_object" },
+            messages: [
+              {
+                role: "system",
+                content: "คุณเป็นผู้ช่วยประเมินความเสี่ยงด้านอาหารสำหรับแอป JaiFit " +
+                  "จากชื่อรายการและรายละเอียดมื้ออาหารที่ผู้ใช้กรอก ให้ประเมินว่าควรมีสถานะใดใน 3 ค่านี้เท่านั้น: " +
+                  "\"safe\" (ปลอดภัย คาร์บ/น้ำตาลต่ำ), \"risky\" (เสี่ยง มีคาร์บ/น้ำตาลปานกลาง), " +
+                  "\"exceeded\" (เกินโควต้า คาร์บ/น้ำตาลสูงมาก หรือของทอด/ขนมหวาน) " +
+                  "ตอบกลับเป็น JSON เท่านั้น รูปแบบ {\"status\": \"safe|risky|exceeded\", \"reason\": \"เหตุผลสั้นๆ ภาษาไทย\"}",
+              },
+              {
+                role: "user",
+                content: `ชื่อรายการ: ${title}\nรายละเอียด: ${description || "(ไม่มี)"}`,
+              },
+            ],
+          }),
+        });
+
+        if (!response.ok) {
+          throw new Error(`OpenRouter API ตอบกลับผิดพลาด (HTTP ${response.status})`);
+        }
+
+        const data = await response.json();
+        const content = data.choices?.[0]?.message?.content;
+        if (!content) throw new Error("ไม่ได้รับคำตอบจาก AI");
+
+        const parsed = JSON.parse(content);
+        if (!STATUS[parsed.status]) {
+          throw new Error(`AI ตอบสถานะที่ไม่รู้จัก: ${parsed.status}`);
+        }
+
+        const s = STATUS[parsed.status];
+        document.getElementById("ai-suggestion-badge").textContent = s.label;
+        document.getElementById("ai-suggestion-badge").className = `badge ${s.cls}`;
+        document.getElementById("ai-suggestion-reason").textContent = parsed.reason || "";
+        document.getElementById("ai-suggestion").dataset.status = parsed.status;
+        document.getElementById("ai-suggestion").style.display = "block";
+      } catch (err) {
+        errorEl.textContent = `❌ ให้ AI ช่วยประเมินล้มเหลว: ${err.message}`;
+        console.error(err);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "🤖 ให้ AI ช่วยประเมิน";
+      }
+    }
+
+    function handleAiConfirm() {
+      const suggestionEl = document.getElementById("ai-suggestion");
+      const status = suggestionEl.dataset.status;
+      if (!status) return;
+
+      pendingAiStatus = status;
+      const s = STATUS[status];
+      document.getElementById("ai-confirmed-text").textContent = `✅ จะบันทึกเป็น: ${s.label}`;
     }
 
     async function handleAddSubmit(e) {
@@ -158,7 +273,7 @@
           title,
           description,
           loggedAt: Timestamp.now(),
-          status: "safe",
+          status: pendingAiStatus ?? "safe",
           userId,
           userName,
           foodCategoryId,
@@ -345,6 +460,8 @@
       document.getElementById("show-add-form").addEventListener("click", () => toggleForm(true));
       document.getElementById("cancel-add-form").addEventListener("click", () => toggleForm(false));
       document.getElementById("add-form").addEventListener("submit", handleAddSubmit);
+      document.getElementById("ai-suggest-btn").addEventListener("click", handleAiSuggest);
+      document.getElementById("ai-confirm-btn").addEventListener("click", handleAiConfirm);
       document.getElementById("log-list").addEventListener("click", handleStatusClick);
       document.getElementById("log-list").addEventListener("click", handleDeleteClick);
 
@@ -582,6 +699,31 @@
       font-family: inherit;
     }
     .form-group textarea { resize: vertical; min-height: 60px; }
+
+    #ai-suggest-btn {
+      background: #eef2ff;
+      color: #4338ca;
+      border: 1px solid #c7d2fe;
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    #ai-suggest-btn:hover:not(:disabled) { background: #e0e7ff; }
+    #ai-suggest-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+
+    .ai-suggestion {
+      background: #f5f3ff;
+      border: 1px solid #ddd6fe;
+      border-radius: 8px;
+      padding: 12px 14px;
+      margin-bottom: 12px;
+      font-size: 0.85rem;
+    }
+    .ai-suggestion-reason { color: #475569; margin: 6px 0 10px; }
+    #ai-confirm-btn { width: auto; padding: 6px 14px; font-size: 0.82rem; border: none; border-radius: 8px; cursor: pointer; }
+    #ai-confirmed-text { color: #15803d; font-weight: 600; margin-top: 8px; font-size: 0.82rem; }
     .form-actions { display: flex; gap: 10px; margin-top: 14px; }
     .form-actions button {
       flex: 1;
@@ -693,6 +835,18 @@
             <label for="description">รายละเอียด</label>
             <textarea id="description" name="description"></textarea>
           </div>
+
+          <div class="form-group">
+            <button type="button" id="ai-suggest-btn">🤖 ให้ AI ช่วยประเมิน</button>
+          </div>
+          <div id="ai-suggestion" class="ai-suggestion" style="display:none">
+            <p>🤖 AI แนะนำ: <span id="ai-suggestion-badge" class="badge"></span></p>
+            <p class="ai-suggestion-reason" id="ai-suggestion-reason"></p>
+            <button type="button" id="ai-confirm-btn" class="btn-cancel">ใช้คำแนะนำนี้</button>
+            <p id="ai-confirmed-text"></p>
+          </div>
+          <p id="ai-suggest-error" class="form-error-text"></p>
+
           <div class="form-group">
             <label for="food-category">หมวดอาหาร</label>
             <select id="food-category" name="foodCategory" required>
