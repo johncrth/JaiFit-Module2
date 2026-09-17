@@ -25,7 +25,7 @@ Requires a Firebase service account JSON (e.g. `jaifit-ai-coach-firebase-adminsd
 
 This repo currently holds two different, unreconciled pictures of the data model:
 
-1. **The actual running prototype** (`app/meallogs.html`, `scripts/seed_meallogs.js`, and [[docs/01-requirements/01-spec/20260831-01-scope.md]]) talks directly to **Firestore** from the browser with a hardcoded client config. Collections: `users`, `foodCategories`, `mealLogs` (with a `nudges` subcollection per meal log). Names are denormalized onto `mealLogs` (`userName`, `foodCategoryName`) to avoid joins when rendering the list. A `mealLogs.status` field holds one of exactly three values — `safe`, `risky`, `exceeded` — as defined in `20260831-01-scope.md`.
+1. **The actual running prototype** (`app/meallogs.html`, `scripts/seed_meallogs.js`, and [[docs/01-requirements/01-spec/20260831-01-scope.md]]) talks directly to **Firestore** from the browser with a hardcoded client config, gated behind **Firebase Auth (email/password)** sign-in. Collections: `users` (document id = uid, includes a `role` field), `foodCategories`, `mealLogs` (with a `nudges` subcollection per meal log). Names are denormalized onto `mealLogs` (`userName`, `foodCategoryName`) to avoid joins when rendering the list. A `mealLogs.status` field holds one of exactly three values — `safe`, `risky`, `exceeded` — as defined in `20260831-01-scope.md`.
 2. **The target/planned architecture** described in `docs/02-design/02-technical/` (see `20260827-02-database-schema.md`) is a much larger, separately-scoped system: Node.js + Express + React + **PostgreSQL**, with ~15 relational entities (users, consent records, push subscriptions, nudge logs, streaks, motivation profiles, etc.) covering the full JaiFit product spec.
 
 These are not the same system at two points in time being incrementally merged — the design docs are conceptual/aspirational and the app code is a minimal Firestore-backed teaching exercise (ADT-RAISE course module). Don't assume fields or collections from one apply to the other, and don't "fix" the app code to match the PostgreSQL schema unless the user asks for that migration explicitly.
@@ -34,9 +34,9 @@ These are not the same system at two points in time being incrementally merged �
 
 The `jaifit-ai-coach` Firestore project is **no longer in test mode**. `firestore.rules` (repo root) requires `request.auth != null` for every read and write, across all collections. This was confirmed empirically: an unauthenticated request to the Firestore REST API for `mealLogs` returns `403 PERMISSION_DENIED`.
 
-This means `app/meallogs.html` — which queries Firestore directly with no sign-in step — can no longer load any data; it needs a Firebase Auth flow added (or a signed-in session) before it will work again. Don't assume the app still runs anonymously; check for an auth step before debugging "empty" data as a rules/query bug.
+`app/meallogs.html` already has the matching Firebase Auth flow built in — a single-page login/signup toggle gates the whole app behind `onAuthStateChanged`; logged-out visitors only see the login form and no Firestore reads happen until a user signs in. So the app and the rules are in sync: don't treat "empty" data as a rules/query bug without first checking whether the browser session is actually signed in.
 
-`ACL.md` (repo root) documents the access-control intent behind these rules — check it alongside `firestore.rules` when reasoning about who can read/write what.
+There is currently **no per-owner (ownership) restriction** in either the rules or the UI: any signed-in user can view, change the status of, and delete every other user's `mealLogs`, not just their own. `ACL.md` (repo root) documents this access-control intent/gap in detail — check it alongside `firestore.rules` when reasoning about who can read/write what.
 
 Never seed, enter, or suggest entering real personal data (real names, emails, health data, etc.) for any actual person into any collection, regardless of the rules in place. Use fictional/placeholder data only (as `scripts/seed_meallogs.js` already does).
 
