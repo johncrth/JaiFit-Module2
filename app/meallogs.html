@@ -9,7 +9,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
-      getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, setDoc, getDoc, doc, orderBy, query, Timestamp
+      getFirestore, collection, getDocs, addDoc, updateDoc, deleteDoc, setDoc, getDoc, doc, orderBy, where, query, Timestamp
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
     import {
       getAuth, onAuthStateChanged, createUserWithEmailAndPassword,
@@ -88,7 +88,11 @@
       const counter   = document.getElementById("counter");
 
       try {
-        const q    = query(collection(db, "mealLogs"), orderBy("loggedAt", "desc"));
+        const q    = query(
+          collection(db, "mealLogs"),
+          where("userId", "==", currentProfile.uid),
+          orderBy("loggedAt", "desc")
+        );
         const snap = await getDocs(q);
 
         if (snap.empty) {
